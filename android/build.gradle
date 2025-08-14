@@ -1,13 +1,13 @@
+// Remove the old AGP version lock — use rootProject's AGP instead
 buildscript {
     if (project == rootProject) {
         repositories {
             google()
             mavenCentral()
-            jcenter()
         }
-
         dependencies {
-            classpath("com.android.tools.build:gradle:3.6.1")
+            // REMOVE: classpath("com.android.tools.build:gradle:3.6.1")
+            // This will use whatever your main project defines
         }
     }
 }
@@ -19,14 +19,14 @@ def safeExtGet(prop, fallback) {
 }
 
 android {
-    compileSdkVersion safeExtGet('OtpVerify_compileSdkVersion', 34)
     namespace 'com.faizal.OtpVerify'
+    compileSdkVersion safeExtGet('OtpVerify_compileSdkVersion', 34)
+
     defaultConfig {
         minSdkVersion safeExtGet('OtpVerify_minSdkVersion', 21)
         targetSdkVersion safeExtGet('OtpVerify_targetSdkVersion', 34)
         versionCode 2
         versionName "1.0"
-
     }
 
     buildTypes {
@@ -34,9 +34,7 @@ android {
             minifyEnabled false
         }
     }
-    lintOptions {
-        disable 'GradleCompatible'
-    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -51,11 +49,9 @@ repositories {
     }
     google()
     mavenCentral()
-    jcenter()
 }
 
 dependencies {
-    //noinspection GradleDynamicVersion
     implementation "com.facebook.react:react-native:+"  // From node_modules
     implementation "com.google.android.gms:play-services-auth:21.2.0"
 }
