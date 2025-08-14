@@ -9,18 +9,18 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
 import android.util.Log;
+
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.LifecycleEventListener;
-
 import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.WritableArray;
-import com.google.android.gms.auth.api.Auth;
+
 import com.google.android.gms.auth.api.identity.GetPhoneNumberHintIntentRequest;
 import com.google.android.gms.auth.api.identity.Identity;
+import com.google.android.gms.auth.api.identity.GetPhoneNumberHintResult;
 import com.google.android.gms.auth.api.phone.SmsRetriever;
 import com.google.android.gms.auth.api.phone.SmsRetrieverClient;
 import com.google.android.gms.common.api.ApiException;
-import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.tasks.OnCanceledListener;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
@@ -40,7 +40,7 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
     public static final String NAME = "OtpVerify";
     private static final String TAG = OtpVerifyModule.class.getSimpleName();
     private static final int RESOLVE_HINT = 10001;
-    private GoogleApiClient apiClient;
+
     private Promise requestHintCallback;
     private final ReactApplicationContext reactContext;
     private BroadcastReceiver mReceiver;
@@ -49,13 +49,10 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
     public OtpVerifyModule(ReactApplicationContext reactContext) {
         super(reactContext);
         this.reactContext = reactContext;
-                mReceiver = new OtpBroadcastReceiver(reactContext);
-                getReactApplicationContext().addLifecycleEventListener(this);
+        mReceiver = new OtpBroadcastReceiver(reactContext);
+        getReactApplicationContext().addLifecycleEventListener(this);
         registerReceiverIfNecessary(mReceiver);
         reactContext.addActivityEventListener(this);
-        apiClient = new GoogleApiClient.Builder(reactContext)
-                .addApi(Auth.GOOGLE_SIGN_IN_API)
-                .build();
     }
 
     @Override
@@ -69,25 +66,31 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
         Activity currentActivity = getCurrentActivity();
         requestHintCallback = promise;
 
-
         if (currentActivity == null) {
             requestHintCallback.reject("No Activity Found", "Current Activity Null.");
             return;
         }
+
         try {
-            GetPhoneNumberHintIntentRequest request = GetPhoneNumberHintIntentRequest.builder().build();
-            Identity.getSignInClient(currentActivity)
+            GetPhoneNumberHintIntentRequest request =
+                    GetPhoneNumberHintIntentRequest.builder().build();
+
+            Identity.getPhoneNumberHintClient(currentActivity)
                     .getPhoneNumberHintIntent(request)
-                    .addOnSuccessListener( result -> {
+                    .addOnSuccessListener(result -> {
                         try {
-//                            phoneNumberHintIntentResultLauncher.launch(result.getIntentSender());
-                            currentActivity.startIntentSenderForResult(result.getIntentSender(), RESOLVE_HINT, null, 0, 0, 0);
-                        } catch(Exception e) {
+                            currentActivity.startIntentSenderForResult(
+                                    result.getIntentSender(),
+                                    RESOLVE_HINT,
+                                    null, 0, 0, 0
+                            );
+                        } catch (Exception e) {
                             Log.e(TAG, "Launching the PendingIntent failed", e);
                         }
                     })
                     .addOnFailureListener(e -> {
                         Log.e(TAG, "Phone Number Hint failed", e);
+                        promise.reject(e);
                     });
 
         } catch (Exception e) {
@@ -115,21 +118,18 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
         }
     }
 
-
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void registerReceiverIfNecessary(BroadcastReceiver receiver) {
         if (getCurrentActivity() == null) return;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // Removed SmsRetriever.SEND_PERMISSION as it no longer exists
                 getCurrentActivity().registerReceiver(
                         receiver,
                         new IntentFilter(SmsRetriever.SMS_RETRIEVED_ACTION),
-                        SmsRetriever.SEND_PERMISSION,
-                        null,
                         Context.RECEIVER_EXPORTED
                 );
-            }
-            else {
+            } else {
                 getCurrentActivity().registerReceiver(
                         receiver,
                         new IntentFilter(SmsRetriever.SMS_RETRIEVED_ACTION)
@@ -145,32 +145,15 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
     private void requestOtp(final Promise promise) {
         SmsRetrieverClient client = SmsRetriever.getClient(reactContext);
         Task<Void> task = client.startSmsRetriever();
-        task.addOnCanceledListener(new OnCanceledListener() {
-          @Override
-          public void onCanceled() {
-            Log.e(TAG, "sms listener cancelled");
-          }
+        task.addOnCanceledListener(() -> Log.e(TAG, "sms listener cancelled"));
+        task.addOnCompleteListener(task1 -> Log.e(TAG, "sms listener complete"));
+        task.addOnSuccessListener(aVoid -> {
+            Log.e(TAG, "started sms listener");
+            promise.resolve(true);
         });
-        task.addOnCompleteListener(new OnCompleteListener<Void>() {
-          @Override
-          public void onComplete(@NonNull Task<Void> task) {
-            Log.e(TAG, "sms listener complete");
-          }
-        });
-        task.addOnSuccessListener(new OnSuccessListener<Void>() {
-            @Override
-            public void onSuccess(Void aVoid) {
-                Log.e(TAG, "started sms listener");
-                promise.resolve(true);
-            }
-        });
-
-        task.addOnFailureListener(new OnFailureListener() {
-            @Override
-            public void onFailure(@NonNull Exception e) {
-                Log.e(TAG, "Could not start sms listener", e);
-                promise.reject(e);
-            }
+        task.addOnFailureListener(e -> {
+            Log.e(TAG, "Could not start sms listener", e);
+            promise.reject("E_OTP_ERROR", "Could not start SMS listener.", e);
         });
     }
 
@@ -185,13 +168,15 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
             }
         }
     }
+
     @Override
     public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
         if (requestCode == RESOLVE_HINT) {
             if (resultCode == Activity.RESULT_OK) {
-                String phoneNumber = null;
                 try {
-                    phoneNumber = Identity.getSignInClient(activity).getPhoneNumberFromIntent(data);
+                    GetPhoneNumberHintResult hintResult =
+                            Identity.getPhoneNumberHintFromIntent(data);
+                    String phoneNumber = hintResult.getPhoneNumber();
                     requestHintCallback.resolve(phoneNumber);
                 } catch (ApiException e) {
                     requestHintCallback.reject(e.getMessage());
@@ -203,9 +188,7 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
     }
 
     @Override
-    public void onNewIntent(Intent intent) {
-
-    }
+    public void onNewIntent(Intent intent) { }
 
     @Override
     public void onHostResume() {
@@ -223,12 +206,8 @@ public class OtpVerifyModule extends ReactContextBaseJavaModule implements Lifec
     }
 
     @ReactMethod
-    public void addListener(String eventName) {
-        // Keep: Required for RN built in Event Emitter Calls.
-    }
+    public void addListener(String eventName) { }
 
     @ReactMethod
-    public void removeListeners(Integer count) {
-        // Keep: Required for RN built in Event Emitter Calls.
-    }
+    public void removeListeners(Integer count) { }
 }

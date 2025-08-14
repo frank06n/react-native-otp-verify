@@ -23,52 +23,35 @@ public class OtpBroadcastReceiver extends BroadcastReceiver {
         mContext = context;
     }
 
-    private void receiveMessage(String message) {
-        if (mContext == null) {
-            return;
-        }
-
-        if (!mContext.hasActiveCatalystInstance()) {
-            return;
-        }
-
-        WritableNativeMap receivedMessage = new WritableNativeMap();
-
-        receivedMessage.putString("message", message);
-
-        mContext
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                .emit(EVENT, message);
+    private void sendEvent(Object data) {
+        mContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit(EVENT, data);
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        String o = intent.getAction();
-        if (SmsRetriever.SMS_RETRIEVED_ACTION.equals(o)) {
+        if (SmsRetriever.SMS_RETRIEVED_ACTION.equals(intent.getAction())) {
             Bundle extras = intent.getExtras();
-            if (extras == null) {
-                return;
-            }
-            Status status = (Status) extras.get(SmsRetriever.EXTRA_STATUS);
+            if (extras == null) return;
 
-            if (status == null) {
-                return;
-            }
+            int statusCode = ((Status) extras
+                    .get(SmsRetriever.EXTRA_STATUS))
+                    .getStatusCode();
 
-            switch (status.getStatusCode()) {
+            switch (statusCode) {
                 case CommonStatusCodes.SUCCESS:
                     // Get SMS message contents
                     String message = (String) extras.get(SmsRetriever.EXTRA_SMS_MESSAGE);
-                    receiveMessage(message);
-                    if (message != null) {
-                        Log.d("SMS", "" + message);
-                    }
+                    WritableMap payload = Arguments.createMap();
+                    payload.putString("message", message);
+                    payload.putString("error", message==null ? "UNEXPECTED" : null);
+                    sendEvent(EVENT, payload);
                     break;
                 case CommonStatusCodes.TIMEOUT:
-                    Log.d("SMS", "Timeout error");
-                    mContext
-                            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                            .emit(EVENT, "Timeout Error.");
+                    WritableMap timeoutPayload = Arguments.createMap();
+                    timeoutPayload.putString("message", null);
+                    timeoutPayload.putString("error", "TIMEOUT");
+                    sendEvent(EVENT, timeoutPayload);
                     break;
             }
         }
